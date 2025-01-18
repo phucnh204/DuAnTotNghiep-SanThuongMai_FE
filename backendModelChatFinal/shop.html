@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Chat Test - Shop (Enhanced)</title>
+    <!-- Tailwind CSS CDN -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@3.3.2/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+    <!-- Socket.io CDN -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- React and ReactDOM CDN -->
+    <script
+      src="https://unpkg.com/react@18/umd/react.development.js"
+      crossorigin
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+      crossorigin
+    ></script>
+    <!-- Babel CDN for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Font Awesome for Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+      integrity="sha512-p+U0GdBuE7Fj6NYpLhI2sThHmRgDgEepc1qQvM+9rAeU0tNKtC1VFOHZi4MBB7fnHcZZ7qK8Pxh5Fv9U4KcP1Q=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <style>
+      /* Custom scrollbar for messages */
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none; /* IE and Edge */
+        scrollbar-width: none; /* Firefox */
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100">
+    <div id="root"></div>
+
+    <!-- React Application Script -->
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+
+      const SOCKET_SERVER_URL = 'http://localhost:8000/chat'; // Update if different
+      const shopId = 'Phuchop'; // Replace with dynamic shop ID as needed
+
+      // Initialize Socket.io client
+      const socket = io(SOCKET_SERVER_URL, {
+        transports: ['websocket'],
+      });
+
+      function App() {
+        const [conversations, setConversations] = useState([]);
+        const [currentRoomId, setCurrentRoomId] = useState('');
+        const [messages, setMessages] = useState([]);
+        const [messageInput, setMessageInput] = useState('');
+        const messagesEndRef = useRef(null);
+
+        useEffect(() => {
+          // Fetch shop conversations on component mount
+          socket.emit('getUserConversations', { userId: shopId });
+
+          // Listen for conversations
+          socket.on('userConversations', (data) => {
+            setConversations(data);
+          });
+
+          // Listen for message history
+          socket.on('messageHistory', (data) => {
+            setMessages(data);
+          });
+
+          // Listen for new messages
+          socket.on('message', (message) => {
+            setMessages((prevMessages) => [...prevMessages, message]);
+          });
+
+          // Cleanup on unmount
+          return () => {
+            socket.off('userConversations');
+            socket.off('messageHistory');
+            socket.off('message');
+            socket.disconnect();
+          };
+        }, []);
+
+        useEffect(() => {
+          // Scroll to bottom when messages update
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, [messages]);
+
+        const handleConversationClick = (roomId) => {
+          if (currentRoomId === roomId) return; // Prevent rejoining the same room
+          setCurrentRoomId(roomId);
+          setMessages([]); // Clear current messages
+          socket.emit('joinRoom', { roomId, userId: shopId });
+          socket.emit('getMessagesByRoom', { roomId });
+        };
+
+        const sendMessage = () => {
+          const message = messageInput.trim();
+          if (message && currentRoomId) {
+            socket.emit('sendMessage', {
+              roomId: currentRoomId, // Send message to the selected room
+              senderId: shopId,
+              message: message,
+            });
+            setMessageInput(''); // Clear input after sending
+          } else {
+            alert('Please select a conversation and enter a message.');
+          }
+        };
+
+        const handleKeyPress = (e) => {
+          if (e.key === 'Enter') {
+            sendMessage();
+          }
+        };
+
+        return (
+          <div className="min-h-screen flex flex-col items-center p-4">
+            <header className="w-full max-w-4xl mb-6">
+              <h1 className="text-4xl font-bold text-center text-green-600">
+                Shop Chat Dashboard
+              </h1>
+            </header>
+            <div className="w-full max-w-4xl flex bg-white rounded-lg shadow-lg overflow-hidden">
+              {/* Conversations List */}
+              <div className="w-1/3 bg-gray-50 border-r">
+                <div className="p-4 border-b">
+                  <h2 className="text-xl font-semibold text-gray-700">
+                    User Conversations
+                  </h2>
+                </div>
+                <ul className="overflow-y-auto h-[80vh] scrollbar-hide">
+                  {conversations.length === 0 ? (
+                    <li className="p-4 text-center text-gray-500">
+                      No conversations found.
+                    </li>
+                  ) : (
+                    conversations.map((conversation) => (
+                      <li
+                        key={conversation._id}
+                        className={`p-4 cursor-pointer hover:bg-green-50 ${
+                          currentRoomId === conversation._id
+                            ? 'bg-green-100'
+                            : ''
+                        }`}
+                        onClick={() =>
+                          handleConversationClick(conversation._id)
+                        }
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-800">
+                              User ID: {conversation.accountId}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {conversation.lastMessage
+                                ? conversation.lastMessage
+                                : 'No messages yet.'}
+                            </p>
+                          </div>
+                          {conversation.unreadCount > 0 && (
+                            <span className="inline-block w-5 h-5 text-center text-xs text-white bg-red-500 rounded-full">
+                              {conversation.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+
+              {/* Messages Section */}
+              <div className="w-2/3 flex flex-col">
+                {/* Header */}
+                <div className="p-4 border-b flex items-center justify-between">
+                  {currentRoomId ? (
+                    <div className="flex items-center">
+                      <i className="fa-solid fa-user mr-2 text-xl text-green-500"></i>
+                      <span className="font-semibold text-gray-700">
+                        User ID: {currentRoomId}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-gray-500">
+                      Select a conversation to start chatting
+                    </span>
+                  )}
+                </div>
+
+                {/* Messages Display */}
+                <div className="flex-1 p-4 bg-gray-100 overflow-y-auto scrollbar-hide">
+                  {messages.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <span className="text-gray-500">No messages yet.</span>
+                    </div>
+                  ) : (
+                    messages.map((msg, index) => (
+                      <div
+                        key={index}
+                        className={`flex mb-4 ${
+                          msg.senderId === shopId
+                            ? 'justify-end'
+                            : 'justify-start'
+                        }`}
+                      >
+                        <div
+                          className={`max-w-xs p-3 rounded-lg ${
+                            msg.senderId === shopId
+                              ? 'bg-green-500 text-white'
+                              : 'bg-white text-gray-800 shadow'
+                          }`}
+                        >
+                          <p className="text-sm">{msg.messageText}</p>
+                          <span className="block text-xs text-right text-gray-300 mt-1">
+                            {new Date(msg.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Message Input */}
+                <div className="p-4 border-t bg-gray-50 flex items-center">
+                  <input
+                    type="text"
+                    className="flex-1 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Type your message..."
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    disabled={!currentRoomId}
+                  />
+                  <button
+                    className="ml-2 p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 focus:outline-none"
+                    onClick={sendMessage}
+                    disabled={!currentRoomId || messageInput.trim() === ''}
+                    title="Send Message"
+                  >
+                    <i className="fa-solid fa-paper-plane"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+  </body>
+</html>
